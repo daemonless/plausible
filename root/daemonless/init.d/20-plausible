@@ -1,0 +1,5 @@
+#!/bin/sh
+# Plausible: the volume belongs to the run user (PUID/PGID set by 10-usermod).
+
+mkdir -p /config/tmp
+chown -R bsd:bsd /config

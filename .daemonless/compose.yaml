@@ -1,0 +1,32 @@
+# CIT test compose file
+name: plausible-test
+
+services:
+  postgres:
+    image: ghcr.io/daemonless/postgres:latest
+    network_mode: host
+    annotations:
+      org.freebsd.jail.allow.sysvipc: "true"
+    environment:
+      POSTGRES_USER: plausible
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: plausible_db
+
+  clickhouse:
+    image: ghcr.io/daemonless/clickhouse:pkg-latest
+    network_mode: host
+    stop_grace_period: 60s
+    environment:
+      CLICKHOUSE_PASSWORD: testpass
+
+  plausible:
+    image: ghcr.io/daemonless/plausible:build
+    network_mode: host
+    environment:
+      BASE_URL: http://localhost:8000
+      # No URLs: the launcher builds them from the passwords, as the stack does.
+      POSTGRES_PASSWORD: testpass
+      CLICKHOUSE_PASSWORD: testpass
+    depends_on:
+      - postgres
+      - clickhouse

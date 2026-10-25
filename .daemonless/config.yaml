@@ -1,0 +1,14 @@
+icon: ':simple-plausibleanalytics:'
+
+cit:
+  mode: health
+  port: 8000
+  health: /api/health
+  compose: true
+  wait: 300
+
+build:
+  variants:
+    - tag: latest
+      containerfile: Containerfile
+      tag_desc: "Built from the latest upstream source release, on FreeBSD's Erlang."

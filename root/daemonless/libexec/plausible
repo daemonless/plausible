@@ -1,0 +1,55 @@
+#!/bin/sh
+# Start Plausible; /init has already dropped to the run user.
+# Secrets first, then the databases (create, migrate), then the release.
+set -e
+
+export HOME=/config
+mkdir -p /config/tmp
+
+# SECRET_KEY_BASE signs sessions and TOTP_VAULT_KEY encrypts 2FA secrets. Both
+# must stay the same across restarts, so when the environment has none they
+# are made once and kept in /config/secrets.env. The environment always wins.
+SECRETS=/config/secrets.env
+if [ -z "${SECRET_KEY_BASE:-}" ] || [ -z "${TOTP_VAULT_KEY:-}" ]; then
+    if [ ! -s "$SECRETS" ]; then
+        umask 077
+        {
+            echo "SECRET_KEY_BASE=$(openssl rand -base64 48)"
+            echo "TOTP_VAULT_KEY=$(openssl rand -base64 32)"
+        } > "$SECRETS"
+        echo "[plausible] Made SECRET_KEY_BASE and TOTP_VAULT_KEY into $SECRETS. Keep that file: new ones sign everyone out."
+    fi
+    # The environment's values stay; the file fills what is missing.
+    env_skb="${SECRET_KEY_BASE:-}" env_tvk="${TOTP_VAULT_KEY:-}"
+    . "$SECRETS"
+    [ -n "$env_skb" ] && SECRET_KEY_BASE="$env_skb"
+    [ -n "$env_tvk" ] && TOTP_VAULT_KEY="$env_tvk"
+    export SECRET_KEY_BASE TOTP_VAULT_KEY
+fi
+
+# The stack's own databases unless a URL names another. The passwords are
+# the ones postgres and clickhouse were initialised with.
+if [ -z "${DATABASE_URL:-}" ]; then
+    export DATABASE_URL="postgres://plausible:${POSTGRES_PASSWORD:-plausible}@127.0.0.1:5432/plausible_db"
+fi
+if [ -z "${CLICKHOUSE_DATABASE_URL:-}" ]; then
+    export CLICKHOUSE_DATABASE_URL="http://default:${CLICKHOUSE_PASSWORD:-plausible}@127.0.0.1:8123/plausible_events_db"
+fi
+
+# createdb needs PostgreSQL and ClickHouse answering; they may still be
+# starting alongside this container.
+n=0
+until /app/createdb.sh; do
+    n=$((n + 1))
+    if [ "$n" -ge 24 ]; then
+        echo "[plausible] PostgreSQL or ClickHouse did not answer in 2 minutes; check DATABASE_URL and CLICKHOUSE_DATABASE_URL" >&2
+        exit 1
+    fi
+    echo "[plausible] Waiting for PostgreSQL and ClickHouse ($n)"
+    sleep 5
+done
+
+/app/migrate.sh
+
+echo "[plausible] Starting Plausible $(cat /app/version) on ${LISTEN_IP}:${HTTP_PORT}"
+exec /app/bin/plausible start

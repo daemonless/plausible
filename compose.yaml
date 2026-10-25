@@ -1,0 +1,178 @@
+name: plausible
+
+x-daemonless:
+  title: "Plausible Analytics"
+  icon: ":simple-plausibleanalytics:"
+  category: "Monitoring"
+  description: "Privacy-first web analytics: one lightweight script, no cookies, a dashboard anyone can read. Runs with PostgreSQL and ClickHouse."
+  upstream_url: "https://github.com/plausible/analytics"
+  web_url: "https://plausible.io/"
+  freshports_url: ""
+  user: "bsd"
+  mlock: false
+  upstream_binary: false
+  # PostgreSQL and ClickHouse sidecars for the AppJail director bundle; host
+  # networking so Plausible reaches both on the loopback address, as under podman.
+  appjail:
+    director:
+      options:
+        - alias:
+        - ip4_inherit:
+    depends_on:
+      - name: plausible-postgres
+        image: ghcr.io/daemonless/postgres:latest
+        # PostgreSQL needs SysV shared memory in its jail; the template ships
+        # with the bundle.
+        template: postgres-template.conf
+        volumes:
+          postgres_data: /var/lib/postgresql/data
+      - name: plausible-clickhouse
+        image: ghcr.io/daemonless/clickhouse:pkg-latest
+        volumes:
+          clickhouse_data: /var/db/clickhouse
+
+  docs:
+    services:
+      plausible: "The analytics server: dashboard, tracking script, API"
+      postgres: "Sites, users and settings"
+      clickhouse: "The events: every pageview lands here"
+    env:
+      PUID: "User ID for the application process"
+      PGID: "Group ID for the application process"
+      TZ: "Timezone for the container"
+      BASE_URL:
+        desc: "Full public URL of this instance, e.g. https://plausible.example.com. The tracking script and every link use it"
+        level: primary
+      SECRET_KEY_BASE:
+        desc: "Optional. 64+ random bytes, base64 (`openssl rand -base64 48`). Generated into /config/secrets.env on first start if unset"
+        optional: true
+        level: primary
+      TOTP_VAULT_KEY:
+        desc: "Optional. 32 random bytes, base64 (`openssl rand -base64 32`), encrypts 2FA secrets. Generated alongside SECRET_KEY_BASE if unset"
+        optional: true
+      POSTGRES_PASSWORD:
+        desc: "Password for the bundled PostgreSQL (letters and digits only). Set it once, before the first start"
+        level: primary
+      CLICKHOUSE_PASSWORD:
+        desc: "Password for the bundled ClickHouse (letters and digits only). Set it once, before the first start"
+        level: primary
+      DATABASE_URL:
+        desc: "A PostgreSQL of your own instead of the bundled one, e.g. postgres://plausible:secret@db.example.com:5432/plausible_db. Unset, Plausible uses the stack's postgres with POSTGRES_PASSWORD"
+        optional: true
+      CLICKHOUSE_DATABASE_URL:
+        desc: "A ClickHouse of your own instead of the bundled one, e.g. http://default:secret@ch.example.com:8123/plausible_events_db. Unset, Plausible uses the stack's clickhouse with CLICKHOUSE_PASSWORD"
+        optional: true
+      DISABLE_REGISTRATION:
+        desc: "`invite_only` (default): after the first account, new users join by invitation. `true` closes sign-up entirely, `false` opens it to anyone"
+        optional: true
+        level: primary
+      MAILER_EMAIL:
+        desc: "From address for the emails Plausible sends (verification, reports)"
+        optional: true
+      SMTP_HOST_ADDR:
+        desc: "SMTP server for outgoing email; with SMTP_HOST_PORT, SMTP_USER_NAME, SMTP_USER_PWD and SMTP_HOST_SSL_ENABLED"
+        optional: true
+      MAXMIND_LICENSE_KEY:
+        desc: "Optional. A MaxMind key for the GeoLite2 city database; without it the bundled DB-IP country database is used"
+        optional: true
+    volumes:
+      /config: "Secrets, the geolocation database and caches"
+    ports:
+      8000: "Web UI and the tracking script"
+  notes: |
+    ## Requirements
+    Plausible needs **PostgreSQL** and **ClickHouse**. Both are part of the
+    compose file; Plausible creates its databases and runs migrations at every
+    start. Pick `POSTGRES_PASSWORD` and `CLICKHOUSE_PASSWORD` before the first
+    start: the databases are initialised with them.
+
+    ## Secrets
+    `SECRET_KEY_BASE` and `TOTP_VAULT_KEY` are generated into
+    `/config/secrets.env` on first start, so there is nothing to prepare. Keep
+    `/config` on persistent storage: a new `SECRET_KEY_BASE` signs everyone out
+    and a new `TOTP_VAULT_KEY` locks out every 2FA user. To supply your own,
+    set them in the environment; the environment always wins.
+
+    ## First run
+    Open `BASE_URL`: an instance without users goes straight to registration,
+    and the first account becomes the owner. After that, sign-up is by
+    invitation only (`DISABLE_REGISTRATION=invite_only`, the default).
+    `BASE_URL` must be the address browsers use: the tracking snippet points
+    at it.
+
+    ## Email
+    Without an SMTP server Plausible cannot send verification mail; account
+    verification is off unless `ENABLE_EMAIL_VERIFICATION=true`. See the
+    [configuration wiki](https://github.com/plausible/community-edition/wiki/configuration)
+    for every setting.
+
+    ## License
+    Plausible is licensed under the **AGPL-3.0**.
+
+services:
+  plausible:
+    image: ghcr.io/daemonless/plausible:latest
+    container_name: plausible
+    restart: unless-stopped
+    network_mode: host
+
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-UTC}
+      - BASE_URL=${BASE_URL:-http://localhost:8000}
+      # Generated into /config/secrets.env on first start if unset.
+      - SECRET_KEY_BASE=${SECRET_KEY_BASE:-}
+      - TOTP_VAULT_KEY=${TOTP_VAULT_KEY:-}
+      # Plausible connects to the postgres and clickhouse below with these.
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-plausible}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-plausible}
+      # Databases of your own instead:
+      # - DATABASE_URL=postgres://plausible:secret@db.example.com:5432/plausible_db
+      # - CLICKHOUSE_DATABASE_URL=http://default:secret@ch.example.com:8123/plausible_events_db
+      # Upstream's default: after the first account, new users only by invitation.
+      - DISABLE_REGISTRATION=${DISABLE_REGISTRATION:-invite_only}
+
+    depends_on:
+      - postgres
+      - clickhouse
+
+    volumes:
+      - ${CONFIG_LOCATION}:/config
+
+  postgres:
+    image: ghcr.io/daemonless/postgres:latest
+    container_name: plausible-postgres
+    restart: unless-stopped
+    network_mode: host
+    # Needs SysV IPC
+    annotations:
+      org.freebsd.jail.allow.sysvipc: "true"
+
+    environment:
+      - POSTGRES_USER=plausible
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-plausible}
+      - POSTGRES_DB=plausible_db
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-UTC}
+
+    volumes:
+      - ${POSTGRES_DATA_LOCATION}:/var/lib/postgresql/data
+
+  clickhouse:
+    image: ghcr.io/daemonless/clickhouse:pkg-latest
+    container_name: plausible-clickhouse
+    restart: unless-stopped
+    network_mode: host
+    # ClickHouse on FreeBSD needs the long stop: see its image notes.
+    stop_grace_period: 60s
+
+    environment:
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-plausible}
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-UTC}
+
+    volumes:
+      - ${CLICKHOUSE_DATA_LOCATION}:/var/db/clickhouse
