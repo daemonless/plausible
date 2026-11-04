@@ -1,11 +1,11 @@
 {
-  "generated": "2026-10-25T09:49:08Z",
+  "generated": "2026-11-04T13:48:24Z",
   "image": "plausible",
   "tags": {
     "latest": {
       "app_version": "3.2.1",
       "arch": "amd64",
-      "generated": "2026-10-25T09:48:33Z",
+      "generated": "2026-11-04T13:47:46Z",
       "packages": {
         "dotnet": [],
         "freebsd": [
@@ -189,7 +189,7 @@
               "BSD2CLAUSE"
             ],
             "name": "FreeBSD-runtime",
-            "version": "15.1p5"
+            "version": "15.1p6"
           },
           {
             "licenses": [
@@ -252,7 +252,7 @@
               "MPL20"
             ],
             "name": "ca_root_nss",
-            "version": "3.131.1"
+            "version": "3.132"
           },
           {
             "licenses": [
