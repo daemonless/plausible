@@ -42,6 +42,7 @@ x-daemonless:
       TZ: "Timezone for the container"
       BASE_URL:
         desc: "Full public URL of this instance, e.g. https://plausible.example.com. The tracking script and every link use it"
+        public_url: true
         level: primary
       SECRET_KEY_BASE:
         desc: "Optional. 64+ random bytes, base64 (`openssl rand -base64 48`). Generated into /config/secrets.env on first start if unset"
